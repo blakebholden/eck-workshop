@@ -1,0 +1,140 @@
+# Elastic Agent DaemonSet
+# Kubernetes-wide log collection running on all nodes
+# Collects container logs and node metrics via Fleet
+
+---
+# Service Account for Elastic Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elastic-agent
+  namespace: elastic-system
+  labels:
+    app.kubernetes.io/name: elastic-agent
+    app.kubernetes.io/managed-by: kubectl
+
+---
+# ClusterRole for Elastic Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: elastic-agent
+rules:
+# Pod and namespace access for Kubernetes integration
+- apiGroups: [""]
+  resources: ["pods", "nodes", "namespaces", "events", "services", "configmaps"]
+  verbs: ["get", "watch", "list"]
+# Node metrics
+- apiGroups: [""]
+  resources: ["nodes/stats", "nodes/metrics"]
+  verbs: ["get"]
+# Apps for deployments, daemonsets, etc.
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "watch", "list"]
+# Batch for jobs
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "watch", "list"]
+# Storage
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses"]
+  verbs: ["get", "watch", "list"]
+# Coordination for leader election
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+# Non-resource URLs for healthchecks
+- nonResourceURLs: ["/metrics", "/healthz", "/healthz/*"]
+  verbs: ["get"]
+
+---
+# ClusterRoleBinding for Elastic Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: elastic-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: elastic-agent
+subjects:
+- kind: ServiceAccount
+  name: elastic-agent
+  namespace: elastic-system
+
+---
+# Elastic Agent DaemonSet CR
+apiVersion: agent.k8s.elastic.co/v1alpha1
+kind: Agent
+metadata:
+  name: elastic-agent
+  namespace: elastic-system
+spec:
+  version: 9.2.4
+  mode: fleet
+
+  fleetServerRef:
+    name: fleet-server
+    namespace: elastic-system
+
+  # Required for ECK to generate enrollment tokens
+  kibanaRef:
+    name: kibana
+    namespace: elastic-system
+
+  daemonSet:
+    podTemplate:
+      metadata:
+        labels:
+          app: elastic-agent
+      spec:
+        serviceAccountName: elastic-agent
+        automountServiceAccountToken: true
+
+        # Run as root for system-level access
+        securityContext:
+          runAsUser: 0
+
+        # Tolerate all taints to run on all nodes
+        tolerations:
+        - operator: Exists
+
+        # Required for kube-proxy metrics (localhost:10249)
+        hostNetwork: true
+
+        containers:
+        - name: agent
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 100m
+            limits:
+              memory: 1Gi
+              cpu: 500m
+
+          # Volume mounts for log collection
+          volumeMounts:
+          - name: varlog
+            mountPath: /var/log
+            readOnly: true
+          - name: varlibdockercontainers
+            mountPath: /var/lib/docker/containers
+            readOnly: true
+          - name: varlogpods
+            mountPath: /var/log/pods
+            readOnly: true
+
+        volumes:
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+
+        # DNS policy for cluster DNS
+        dnsPolicy: ClusterFirstWithHostNet

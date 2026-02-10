@@ -1,0 +1,134 @@
+# HTTPRoutes - Application routing rules
+# 100% PORTABLE: These manifests are identical on EKS and VKS
+# App teams can use these as templates without modification
+---
+# Kibana HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kibana-route
+  namespace: elastic-system
+  labels:
+    app: kibana
+    gateway: elastic-gateway
+spec:
+  parentRefs:
+    - name: elastic-gateway
+      namespace: elastic-system
+      sectionName: https-kibana
+  hostnames:
+    - "kibana.elastic.internal"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kibana-kb-http
+          port: 5601
+          weight: 100
+
+---
+# Fleet Server HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: fleet-route
+  namespace: elastic-system
+  labels:
+    app: fleet-server
+    gateway: elastic-gateway
+spec:
+  parentRefs:
+    - name: elastic-gateway
+      namespace: elastic-system
+      sectionName: https-fleet
+  hostnames:
+    - "fleet.elastic.internal"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: fleet-server-agent-http
+          port: 8220
+          weight: 100
+
+---
+# Monitoring Kibana HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: monitoring-route
+  namespace: elastic-system
+  labels:
+    app: kibana-monitoring
+    gateway: elastic-gateway
+spec:
+  parentRefs:
+    - name: elastic-gateway
+      namespace: elastic-system
+      sectionName: https-monitoring
+  hostnames:
+    - "monitoring.elastic.internal"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: kibana-monitoring-kb-http
+          port: 5601
+          weight: 100
+
+---
+# APM Server HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: apm-route
+  namespace: elastic-system
+  labels:
+    app: apm-server
+    gateway: elastic-gateway
+spec:
+  parentRefs:
+    - name: elastic-gateway
+      namespace: elastic-system
+      sectionName: https-apm
+  hostnames:
+    - "apm.elastic.internal"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: apm-server
+          port: 8200
+          weight: 100
+
+---
+# HTTP to HTTPS redirect for Kibana
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kibana-redirect
+  namespace: elastic-system
+  labels:
+    app: kibana
+    purpose: http-redirect
+spec:
+  parentRefs:
+    - name: elastic-gateway
+      namespace: elastic-system
+      sectionName: http
+  hostnames:
+    - "kibana.elastic.internal"
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

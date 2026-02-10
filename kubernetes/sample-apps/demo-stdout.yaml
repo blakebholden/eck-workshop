@@ -1,0 +1,78 @@
+# Demo App - Stdout Logger
+# Simple application logging to stdout/stderr
+# Demonstrates DaemonSet collection (default path for container logs)
+# Logs are automatically collected by the Elastic Agent DaemonSet
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-stdout
+  namespace: app-demo
+  labels:
+    app: demo-stdout
+    log-collection: daemonset
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-stdout
+  template:
+    metadata:
+      labels:
+        app: demo-stdout
+        log-collection: daemonset
+    spec:
+      nodeSelector:
+        node-group: apps
+
+      containers:
+      - name: logger
+        image: busybox:1.36
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Starting demo-stdout application"
+            echo "Container logs are collected by the DaemonSet Elastic Agent"
+            i=0
+            while true; do
+              i=$((i+1))
+              timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+              # Normal log messages
+              echo "{\"timestamp\":\"$timestamp\",\"level\":\"INFO\",\"message\":\"Processing request $i\",\"app\":\"demo-stdout\",\"type\":\"request\"}"
+
+              # Occasional warning
+              if [ $((i % 10)) -eq 0 ]; then
+                echo "{\"timestamp\":\"$timestamp\",\"level\":\"WARN\",\"message\":\"High latency detected on request $i\",\"app\":\"demo-stdout\",\"latency_ms\":1500}"
+              fi
+
+              # Occasional error
+              if [ $((i % 25)) -eq 0 ]; then
+                echo "{\"timestamp\":\"$timestamp\",\"level\":\"ERROR\",\"message\":\"Failed to process request $i\",\"app\":\"demo-stdout\",\"error\":\"Connection timeout\"}" >&2
+              fi
+
+              sleep 5
+            done
+        resources:
+          requests:
+            memory: 32Mi
+            cpu: 10m
+          limits:
+            memory: 64Mi
+            cpu: 50m
+
+---
+# Service for demo-stdout (optional, for completeness)
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-stdout
+  namespace: app-demo
+spec:
+  selector:
+    app: demo-stdout
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP

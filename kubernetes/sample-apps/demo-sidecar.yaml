@@ -1,0 +1,194 @@
+# Demo App - Sidecar File Logger
+# Application writing logs to file that requires sidecar collection
+# Demonstrates the exception path for file-based log collection
+# Standard contract: Application writes to /var/log/app/*.log
+
+---
+# Service Account for Sidecar Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: elastic-agent-sidecar
+  namespace: app-demo
+  labels:
+    app.kubernetes.io/name: elastic-agent-sidecar
+    app.kubernetes.io/managed-by: kubectl
+
+---
+# Role for Sidecar Agent (namespace-scoped)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: elastic-agent-sidecar
+  namespace: app-demo
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+
+---
+# RoleBinding for Sidecar Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: elastic-agent-sidecar
+  namespace: app-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: elastic-agent-sidecar
+subjects:
+- kind: ServiceAccount
+  name: elastic-agent-sidecar
+  namespace: app-demo
+
+---
+# Demo Application with Elastic Agent Sidecar
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-sidecar
+  namespace: app-demo
+  labels:
+    app: demo-sidecar
+    log-collection: sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-sidecar
+  template:
+    metadata:
+      labels:
+        app: demo-sidecar
+        log-collection: sidecar
+    spec:
+      serviceAccountName: elastic-agent-sidecar
+      nodeSelector:
+        node-group: apps
+
+      # Shared volume for log files
+      volumes:
+      - name: app-logs
+        emptyDir: {}
+      # ES CA certificate for TLS
+      - name: es-ca
+        secret:
+          secretName: logs-es-http-certs-public
+          items:
+          - key: ca.crt
+            path: ca.crt
+
+      containers:
+      # Main application container
+      - name: app
+        image: busybox:1.36
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Starting demo-sidecar application"
+            echo "Writing logs to /var/log/app/app.log"
+            mkdir -p /var/log/app
+            i=0
+            while true; do
+              i=$((i+1))
+              timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+              # Write structured logs to file
+              echo "{\"timestamp\":\"$timestamp\",\"level\":\"INFO\",\"message\":\"Processing file batch $i\",\"app\":\"demo-sidecar\",\"type\":\"batch\"}" >> /var/log/app/app.log
+
+              # Occasional warning
+              if [ $((i % 8)) -eq 0 ]; then
+                echo "{\"timestamp\":\"$timestamp\",\"level\":\"WARN\",\"message\":\"Batch $i took longer than expected\",\"app\":\"demo-sidecar\",\"duration_ms\":5000}" >> /var/log/app/app.log
+              fi
+
+              # Occasional error
+              if [ $((i % 20)) -eq 0 ]; then
+                echo "{\"timestamp\":\"$timestamp\",\"level\":\"ERROR\",\"message\":\"Failed to write batch $i to storage\",\"app\":\"demo-sidecar\",\"error\":\"Disk quota exceeded\"}" >> /var/log/app/app.log
+              fi
+
+              # Rotate log file if it gets too large (simple rotation)
+              if [ $(stat -f%z /var/log/app/app.log 2>/dev/null || stat -c%s /var/log/app/app.log 2>/dev/null || echo 0) -gt 1048576 ]; then
+                mv /var/log/app/app.log /var/log/app/app.log.1
+                echo "{\"timestamp\":\"$timestamp\",\"level\":\"INFO\",\"message\":\"Log file rotated\",\"app\":\"demo-sidecar\"}" >> /var/log/app/app.log
+              fi
+
+              sleep 3
+            done
+        volumeMounts:
+        - name: app-logs
+          mountPath: /var/log/app
+        resources:
+          requests:
+            memory: 32Mi
+            cpu: 10m
+          limits:
+            memory: 64Mi
+            cpu: 50m
+
+      # Elastic Agent Sidecar Container
+      # This collects logs from the shared volume
+      - name: elastic-agent
+        image: docker.elastic.co/elastic-agent/elastic-agent:9.2.4
+        env:
+        - name: FLEET_ENROLL
+          value: "1"
+        - name: FLEET_URL
+          value: "https://fleet-server-agent-http.elastic-system.svc:8220"
+        - name: FLEET_INSECURE
+          value: "true"
+        - name: KIBANA_FLEET_SETUP
+          value: "1"
+        - name: KIBANA_HOST
+          value: "https://kibana-kb-http.elastic-system.svc:5601"
+        # Get enrollment token from Fleet (must be created in Kibana)
+        # In production, use a secret reference
+        - name: FLEET_ENROLLMENT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sidecar-enrollment-token
+              key: token
+              optional: true
+        # Elasticsearch CA certificate path
+        - name: ELASTICSEARCH_CA
+          value: "/etc/elasticsearch/ca/ca.crt"
+        volumeMounts:
+        - name: app-logs
+          mountPath: /var/log/app
+          readOnly: true
+        - name: es-ca
+          mountPath: /etc/elasticsearch/ca
+          readOnly: true
+        resources:
+          requests:
+            memory: 256Mi
+            cpu: 100m
+          limits:
+            memory: 512Mi
+            cpu: 250m
+        securityContext:
+          runAsUser: 0
+
+---
+# Note: The sidecar-enrollment-token secret should be created separately
+# using: kubectl create secret generic sidecar-enrollment-token -n app-demo --from-literal=token=<TOKEN>
+# The token is generated from Fleet UI or API
+
+---
+# Service for demo-sidecar (optional, for completeness)
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-sidecar
+  namespace: app-demo
+spec:
+  selector:
+    app: demo-sidecar
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP

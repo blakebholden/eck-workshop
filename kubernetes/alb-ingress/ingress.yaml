@@ -1,0 +1,97 @@
+# AWS ALB Ingress for Elastic Services
+# NOTE: This is AWS-specific and NOT portable to VKS
+# Use Gateway API approach for multi-environment deployments
+#
+# Prerequisites:
+# 1. AWS Load Balancer Controller installed
+# 2. ACM certificate created for *.elastic.internal
+# 3. Route53 Private Hosted Zone configured
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana-ingress
+  namespace: elastic-system
+  annotations:
+    # AWS Load Balancer Controller annotations
+    kubernetes.io/ingress.class: alb
+
+    # Internal ALB (no public access)
+    alb.ingress.kubernetes.io/scheme: internal
+
+    # Use IP target type for direct pod routing
+    alb.ingress.kubernetes.io/target-type: ip
+
+    # HTTPS listener on 443
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+
+    # ACM Certificate ARN (replace with your cert)
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-2:ACCOUNT_ID:certificate/CERT_ID
+
+    # TLS policy
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+
+    # Health check configuration
+    alb.ingress.kubernetes.io/healthcheck-path: /api/status
+    alb.ingress.kubernetes.io/healthcheck-port: "5601"
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTPS
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+
+    # Backend uses HTTPS (Kibana serves HTTPS)
+    alb.ingress.kubernetes.io/backend-protocol: HTTPS
+
+    # Tags for resource identification
+    alb.ingress.kubernetes.io/tags: Environment=dev,Application=elastic,Team=platform
+
+    # Group multiple ingresses into single ALB (cost optimization)
+    alb.ingress.kubernetes.io/group.name: elastic-internal
+    alb.ingress.kubernetes.io/group.order: "10"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: kibana.elastic.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kibana-kb-http
+                port:
+                  number: 5601
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fleet-ingress
+  namespace: elastic-system
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":8220}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-2:ACCOUNT_ID:certificate/CERT_ID
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/healthcheck-path: /api/status
+    alb.ingress.kubernetes.io/healthcheck-port: "8220"
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTPS
+    alb.ingress.kubernetes.io/backend-protocol: HTTPS
+    alb.ingress.kubernetes.io/tags: Environment=dev,Application=elastic,Team=platform
+    alb.ingress.kubernetes.io/group.name: elastic-internal
+    alb.ingress.kubernetes.io/group.order: "20"
+spec:
+  ingressClassName: alb
+  rules:
+    - host: fleet.elastic.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fleet-server-agent-http
+                port:
+                  number: 8220

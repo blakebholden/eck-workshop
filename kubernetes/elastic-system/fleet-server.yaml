@@ -1,0 +1,102 @@
+# Fleet Server
+# Deployed as ECK Agent CR - PRIVATE ONLY (ClusterIP, no external exposure)
+# Manages agent enrollment and policy distribution
+
+---
+# Service Account for Fleet Server
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fleet-server
+  namespace: elastic-system
+  labels:
+    app.kubernetes.io/name: fleet-server
+    app.kubernetes.io/managed-by: kubectl
+
+---
+# ClusterRole for Fleet Server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fleet-server
+rules:
+- apiGroups: [""]
+  resources: ["pods", "namespaces", "nodes"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+
+---
+# ClusterRoleBinding for Fleet Server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fleet-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fleet-server
+subjects:
+- kind: ServiceAccount
+  name: fleet-server
+  namespace: elastic-system
+
+---
+# Fleet Server Agent CR
+apiVersion: agent.k8s.elastic.co/v1alpha1
+kind: Agent
+metadata:
+  name: fleet-server
+  namespace: elastic-system
+spec:
+  version: 9.2.4
+  mode: fleet
+  fleetServerEnabled: true
+
+  kibanaRef:
+    name: kibana
+    namespace: elastic-system
+
+  elasticsearchRefs:
+  - name: logs
+    namespace: elastic-system
+
+  deployment:
+    replicas: 1
+    podTemplate:
+      metadata:
+        labels:
+          app: fleet-server
+      spec:
+        serviceAccountName: fleet-server
+        automountServiceAccountToken: true
+
+        nodeSelector:
+          node-group: system
+
+        securityContext:
+          runAsUser: 0
+
+        containers:
+        - name: agent
+          resources:
+            requests:
+              memory: 512Mi
+              cpu: 250m
+            limits:
+              memory: 1Gi
+              cpu: 500m
+
+  # HTTP service - ClusterIP only (PRIVATE - no external exposure)
+  http:
+    service:
+      spec:
+        type: ClusterIP
+    tls:
+      selfSignedCertificate:
+        disabled: false
+        subjectAltNames:
+        - dns: fleet-server-agent-http.elastic-system.svc
+        - dns: fleet-server-agent-http.elastic-system.svc.cluster.local
+        - dns: "*.fleet-server-agent-http.elastic-system.svc"

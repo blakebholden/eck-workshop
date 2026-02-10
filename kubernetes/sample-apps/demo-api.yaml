@@ -1,0 +1,100 @@
+# Demo API Backend Application
+# Generates structured JSON logs with various log levels
+# Simulates a microservice with database connections and processing
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-api
+  namespace: app-demo
+  labels:
+    app: demo-api
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-api
+  template:
+    metadata:
+      labels:
+        app: demo-api
+        tier: backend
+        log-collection: daemonset
+    spec:
+      nodeSelector:
+        node-group: apps
+      containers:
+      - name: api
+        image: busybox:1.36
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-api","message":"Application starting","version":"1.0.0"}'
+
+            request_id=0
+            while true; do
+              request_id=$((request_id+1))
+              timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              trace_id=$(head -c 8 /dev/urandom | od -An -tx1 | tr -d ' \n')
+
+              # Simulate different request patterns
+              rand=$((RANDOM % 100))
+
+              if [ $rand -lt 60 ]; then
+                # 60% - Successful requests
+                duration=$((50 + RANDOM % 150))
+                echo '{"timestamp":"'$timestamp'","level":"INFO","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Request processed successfully","method":"GET","path":"/api/data","status":200,"duration_ms":'$duration'}'
+
+              elif [ $rand -lt 75 ]; then
+                # 15% - Slow requests (warnings)
+                duration=$((500 + RANDOM % 1500))
+                echo '{"timestamp":"'$timestamp'","level":"WARN","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Slow request detected","method":"GET","path":"/api/data","status":200,"duration_ms":'$duration',"threshold_ms":500}'
+
+              elif [ $rand -lt 85 ]; then
+                # 10% - Database connection issues
+                echo '{"timestamp":"'$timestamp'","level":"WARN","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Database connection pool exhausted, waiting for connection","pool_size":10,"active_connections":10,"waiting_requests":3}'
+                sleep 1
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Database connection acquired","wait_time_ms":1000}'
+
+              elif [ $rand -lt 93 ]; then
+                # 8% - Client errors (400s)
+                echo '{"timestamp":"'$timestamp'","level":"WARN","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Invalid request parameters","method":"POST","path":"/api/users","status":400,"error":"validation_failed","details":"email field is required"}'
+
+              else
+                # 7% - Server errors (500s)
+                echo '{"timestamp":"'$timestamp'","level":"ERROR","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Internal server error","method":"POST","path":"/api/orders","status":500,"error":"database_error","details":"Connection timeout to orders-db"}'
+                echo '{"timestamp":"'$timestamp'","level":"ERROR","service":"demo-api","trace_id":"'$trace_id'","request_id":'$request_id',"message":"Stack trace: at OrderService.create() at OrderController.post()","error_type":"DatabaseTimeoutException"}'
+              fi
+
+              # Periodic health/metrics logs
+              if [ $((request_id % 30)) -eq 0 ]; then
+                heap_used=$((256 + RANDOM % 128))
+                echo '{"timestamp":"'$timestamp'","level":"DEBUG","service":"demo-api","message":"Health check","heap_used_mb":'$heap_used',"heap_max_mb":512,"gc_pause_ms":'$((RANDOM % 50))',"active_threads":25}'
+              fi
+
+              sleep 2
+            done
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 50m
+          limits:
+            memory: 128Mi
+            cpu: 100m
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-api
+  namespace: app-demo
+spec:
+  selector:
+    app: demo-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: ClusterIP

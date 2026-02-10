@@ -1,0 +1,77 @@
+# Elasticsearch Monitoring Cluster
+# Separate cluster for stack monitoring (receives metrics from logs cluster)
+# Single node for dev sizing
+
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: monitoring
+  namespace: elastic-system
+spec:
+  version: 9.2.4
+
+  nodeSets:
+  - name: default
+    count: 1
+    config:
+      # Disable memory mapping for containerized environments
+      node.store.allow_mmap: false
+
+      # Cluster settings - relaxed for monitoring
+      # Note: Do NOT set discovery.type: single-node - conflicts with ECK bootstrap
+      # Note: Do NOT set xpack.security.enabled - reserved in ES 8.17+
+      cluster.routing.allocation.disk.threshold_enabled: true
+      cluster.routing.allocation.disk.watermark.low: 90%
+      cluster.routing.allocation.disk.watermark.high: 95%
+      cluster.routing.allocation.disk.watermark.flood_stage: 98%
+
+      # Node roles
+      node.roles:
+        - master
+        - data
+        - data_content
+        - data_hot
+        - ingest
+
+    podTemplate:
+      metadata:
+        labels:
+          app: elasticsearch
+          cluster: monitoring
+      spec:
+        # Schedule on system nodes (not elastic nodes)
+        nodeSelector:
+          node-group: system
+
+        containers:
+        - name: elasticsearch
+          resources:
+            requests:
+              memory: 2Gi
+              cpu: 500m
+            limits:
+              memory: 2Gi
+              cpu: 1
+          env:
+          - name: ES_JAVA_OPTS
+            value: "-Xms1g -Xmx1g"
+
+    volumeClaimTemplates:
+    - metadata:
+        name: elasticsearch-data
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 20Gi
+        storageClassName: gp3
+
+  # HTTP settings with TLS
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: false
+        subjectAltNames:
+        - dns: monitoring-es-http.elastic-system.svc
+        - dns: monitoring-es-http.elastic-system.svc.cluster.local

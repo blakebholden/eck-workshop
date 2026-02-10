@@ -1,0 +1,91 @@
+# Demo Worker Application
+# Simulates a background job processor with periodic load spikes
+# Demonstrates correlation between resource usage and log patterns
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-worker
+  namespace: app-demo
+  labels:
+    app: demo-worker
+    tier: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-worker
+  template:
+    metadata:
+      labels:
+        app: demo-worker
+        tier: worker
+        log-collection: daemonset
+    spec:
+      nodeSelector:
+        node-group: apps
+      containers:
+      - name: worker
+        image: busybox:1.36
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","message":"Worker started","worker_id":"worker-1","queue":"jobs"}'
+
+            job_id=0
+            while true; do
+              job_id=$((job_id+1))
+              timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+              # Start job
+              echo '{"timestamp":"'$timestamp'","level":"INFO","service":"demo-worker","job_id":'$job_id',"message":"Processing job","job_type":"data_sync","status":"started"}'
+
+              # Simulate work with varying load
+              rand=$((RANDOM % 100))
+
+              if [ $rand -lt 70 ]; then
+                # 70% - Normal job (light processing)
+                sleep 1
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","job_id":'$job_id',"message":"Job completed successfully","job_type":"data_sync","status":"completed","duration_ms":1000,"records_processed":150}'
+
+              elif [ $rand -lt 85 ]; then
+                # 15% - Heavy job (CPU spike simulation)
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","job_id":'$job_id',"message":"Processing large batch - high CPU expected","job_type":"batch_export","records":10000}'
+
+                # Actually consume some CPU
+                i=0
+                while [ $i -lt 500000 ]; do
+                  i=$((i+1))
+                done
+
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","job_id":'$job_id',"message":"Large batch completed","job_type":"batch_export","status":"completed","duration_ms":3000,"records_processed":10000}'
+
+              elif [ $rand -lt 95 ]; then
+                # 10% - Memory intensive job
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"WARN","service":"demo-worker","job_id":'$job_id',"message":"Memory-intensive operation starting","job_type":"report_generation","estimated_memory_mb":256}'
+                sleep 2
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","job_id":'$job_id',"message":"Report generated","job_type":"report_generation","status":"completed","peak_memory_mb":245}'
+
+              else
+                # 5% - Failed jobs
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"ERROR","service":"demo-worker","job_id":'$job_id',"message":"Job failed","job_type":"data_sync","status":"failed","error":"Connection refused to upstream service","retry_count":3,"will_retry":true}'
+                sleep 1
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"WARN","service":"demo-worker","job_id":'$job_id',"message":"Job scheduled for retry","job_type":"data_sync","next_retry_in_seconds":60}'
+              fi
+
+              # Queue stats every 10 jobs
+              if [ $((job_id % 10)) -eq 0 ]; then
+                echo '{"timestamp":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","level":"INFO","service":"demo-worker","message":"Queue statistics","queue":"jobs","pending":$((RANDOM % 50)),"processing":1,"completed_last_hour":'$job_id',"failed_last_hour":'$((job_id / 20))'}'
+              fi
+
+              sleep 3
+            done
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 50m
+          limits:
+            memory: 256Mi
+            cpu: 200m

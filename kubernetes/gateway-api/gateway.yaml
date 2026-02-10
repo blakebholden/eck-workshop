@@ -1,0 +1,86 @@
+# Gateway - Main entry point for Elastic services
+# PORTABLE: Core spec works on any platform
+# AWS-specific annotations are safely ignored on VKS
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: elastic-gateway
+  namespace: elastic-system
+  annotations:
+    # AWS-specific: Request internal NLB (ignored on VKS)
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    # Cross-zone load balancing for HA
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  gatewayClassName: envoy-gateway
+
+  listeners:
+    # HTTPS listener for Kibana (port 443)
+    - name: https-kibana
+      protocol: HTTPS
+      port: 443
+      hostname: "kibana.elastic.internal"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: elastic-gateway-tls
+            namespace: elastic-system
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for Fleet Server (port 8220)
+    - name: https-fleet
+      protocol: HTTPS
+      port: 8220
+      hostname: "fleet.elastic.internal"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: elastic-gateway-tls
+            namespace: elastic-system
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for Monitoring Kibana (port 443, different hostname)
+    - name: https-monitoring
+      protocol: HTTPS
+      port: 443
+      hostname: "monitoring.elastic.internal"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: elastic-gateway-tls
+            namespace: elastic-system
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for APM Server (port 8200)
+    - name: https-apm
+      protocol: HTTPS
+      port: 8200
+      hostname: "apm.elastic.internal"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: elastic-gateway-tls
+            namespace: elastic-system
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTP listener (for redirect or health checks)
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -1,0 +1,76 @@
+# Kibana Instance
+# Main Kibana connected to logs Elasticsearch cluster
+# Fleet plugin enabled, prepared for RBAC/DLS/FLS
+
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana
+  namespace: elastic-system
+spec:
+  version: 9.2.4
+  count: 1
+
+  elasticsearchRef:
+    name: logs
+    namespace: elastic-system
+
+  config:
+    # Server settings
+    server.publicBaseUrl: "https://kibana.example.com"
+
+    # Fleet settings
+    xpack.fleet.enabled: true
+    xpack.fleet.agents.enabled: true
+    xpack.fleet.agents.elasticsearch.hosts:
+      - "https://logs-es-http.elastic-system.svc:9200"
+    xpack.fleet.agents.fleet_server.hosts:
+      - "https://fleet-server-agent-http.elastic-system.svc:8220"
+
+    # Encryption keys (override in production with secrets)
+    xpack.encryptedSavedObjects.encryptionKey: "minimum-32-character-encryption-key!"
+    xpack.reporting.encryptionKey: "minimum-32-character-reporting-key!!"
+    xpack.security.encryptionKey: "minimum-32-character-security-key!!!"
+
+    # Monitoring UI
+    monitoring.ui.ccs.enabled: false
+    xpack.monitoring.ui.container.elasticsearch.enabled: true
+
+    # Spaces and RBAC ready
+    xpack.spaces.enabled: true
+
+  podTemplate:
+    metadata:
+      labels:
+        app: kibana
+        cluster: logs
+    spec:
+      nodeSelector:
+        node-group: system
+
+      containers:
+      - name: kibana
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1
+        readinessProbe:
+          httpGet:
+            path: /api/status
+            port: 5601
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 10
+
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: false
+        subjectAltNames:
+        - dns: kibana-kb-http.elastic-system.svc
+        - dns: kibana-kb-http.elastic-system.svc.cluster.local
+        - dns: kibana.example.com

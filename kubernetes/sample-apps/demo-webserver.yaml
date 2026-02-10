@@ -1,0 +1,158 @@
+# Demo Web Server Application
+# Generates HTTP access logs and periodic errors
+# Demonstrates realistic web application logging patterns
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-webserver
+  namespace: app-demo
+  labels:
+    app: demo-webserver
+    tier: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-webserver
+  template:
+    metadata:
+      labels:
+        app: demo-webserver
+        tier: frontend
+        log-collection: daemonset
+    spec:
+      nodeSelector:
+        node-group: apps
+      containers:
+      - name: nginx
+        image: nginx:1.25-alpine
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: 64Mi
+            cpu: 50m
+          limits:
+            memory: 128Mi
+            cpu: 100m
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+      # Sidecar to generate traffic and errors
+      - name: traffic-generator
+        image: busybox:1.36
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Starting traffic generator"
+            i=0
+            while true; do
+              i=$((i+1))
+
+              # Normal requests
+              wget -q -O /dev/null http://localhost/health 2>/dev/null
+              wget -q -O /dev/null http://localhost/api/users 2>/dev/null
+              wget -q -O /dev/null http://localhost/api/orders 2>/dev/null
+
+              # Occasional 404s
+              if [ $((i % 5)) -eq 0 ]; then
+                wget -q -O /dev/null http://localhost/missing-page 2>/dev/null
+              fi
+
+              # Occasional 500s (hits error endpoint)
+              if [ $((i % 10)) -eq 0 ]; then
+                wget -q -O /dev/null http://localhost/api/error 2>/dev/null
+              fi
+
+              sleep 2
+            done
+        resources:
+          requests:
+            memory: 16Mi
+            cpu: 10m
+          limits:
+            memory: 32Mi
+            cpu: 50m
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: demo-webserver-config
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-webserver-config
+  namespace: app-demo
+data:
+  nginx.conf: |
+    worker_processes 1;
+    error_log /dev/stderr warn;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        log_format json_combined escape=json '{'
+          '"timestamp":"$time_iso8601",'
+          '"remote_addr":"$remote_addr",'
+          '"method":"$request_method",'
+          '"uri":"$uri",'
+          '"status":$status,'
+          '"body_bytes_sent":$body_bytes_sent,'
+          '"request_time":$request_time,'
+          '"http_referer":"$http_referer",'
+          '"http_user_agent":"$http_user_agent"'
+        '}';
+
+        access_log /dev/stdout json_combined;
+
+        server {
+            listen 80;
+            server_name _;
+
+            location /health {
+                return 200 '{"status":"healthy"}';
+                add_header Content-Type application/json;
+            }
+
+            location /api/users {
+                return 200 '{"users":[{"id":1,"name":"Alice"},{"id":2,"name":"Bob"}]}';
+                add_header Content-Type application/json;
+            }
+
+            location /api/orders {
+                return 200 '{"orders":[{"id":101,"total":99.99},{"id":102,"total":149.50}]}';
+                add_header Content-Type application/json;
+            }
+
+            location /api/error {
+                return 500 '{"error":"Internal server error","code":"ERR_DATABASE"}';
+                add_header Content-Type application/json;
+            }
+
+            location / {
+                return 404 '{"error":"Not found"}';
+                add_header Content-Type application/json;
+            }
+        }
+    }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-webserver
+  namespace: app-demo
+spec:
+  selector:
+    app: demo-webserver
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP

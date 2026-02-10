@@ -1,0 +1,35 @@
+# Namespace definitions for ECK Reference Implementation
+# These namespaces follow the target architecture pattern
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic-system
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    elastic.co/managed: "true"
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-demo
+  labels:
+    app.kubernetes.io/managed-by: kubectl

@@ -1,0 +1,160 @@
+# Logstash - Data Processing Pipeline
+# Use for complex transformations, multiple input sources, and enrichment
+# Inputs: Beats (5044), HTTP/JSON (8080)
+---
+apiVersion: logstash.k8s.elastic.co/v1alpha1
+kind: Logstash
+metadata:
+  name: logstash
+  namespace: elastic-system
+spec:
+  version: 9.2.4
+  count: 1
+  elasticsearchRefs:
+    - name: logs
+      clusterName: logs
+  podTemplate:
+    spec:
+      containers:
+        - name: logstash
+          resources:
+            requests:
+              memory: 1Gi
+              cpu: 500m
+            limits:
+              memory: 2Gi
+              cpu: 1000m
+  pipelines:
+    - pipeline.id: main
+      config.string: |
+        input {
+          # Beats input - for Filebeat, Metricbeat, etc.
+          beats {
+            port => 5044
+          }
+          # HTTP input - for JSON payloads
+          http {
+            port => 8080
+            codec => json
+          }
+        }
+
+        filter {
+          # Add timestamp if not present
+          if ![timestamp] {
+            mutate {
+              add_field => { "timestamp" => "%{@timestamp}" }
+            }
+          }
+
+          # Parse JSON in message field if present
+          if [message] =~ /^\{.*\}$/ {
+            json {
+              source => "message"
+              target => "parsed"
+              skip_on_invalid_json => true
+            }
+          }
+
+          # Add ECS fields
+          mutate {
+            add_field => {
+              "[ecs][version]" => "8.0.0"
+              "[event][ingested]" => "%{@timestamp}"
+              "[event][module]" => "logstash"
+            }
+          }
+
+          # Fingerprint for deduplication (optional)
+          fingerprint {
+            source => ["message", "@timestamp"]
+            target => "[@metadata][fingerprint]"
+            method => "SHA256"
+          }
+        }
+
+        output {
+          elasticsearch {
+            hosts => ["https://logs-es-http.elastic-system.svc:9200"]
+            user => "${ELASTICSEARCH_USER}"
+            password => "${ELASTICSEARCH_PASSWORD}"
+            ssl_enabled => true
+            ssl_certificate_authorities => ["/usr/share/logstash/config/certs/ca.crt"]
+            data_stream => true
+            data_stream_type => "logs"
+            data_stream_dataset => "logstash.generic"
+            data_stream_namespace => "default"
+          }
+        }
+  services:
+    - name: beats
+      service:
+        spec:
+          type: ClusterIP
+          ports:
+            - port: 5044
+              name: beats
+              protocol: TCP
+              targetPort: 5044
+    - name: http
+      service:
+        spec:
+          type: ClusterIP
+          ports:
+            - port: 8080
+              name: http
+              protocol: TCP
+              targetPort: 8080
+
+---
+# ConfigMap for additional pipeline configurations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-extra-pipelines
+  namespace: elastic-system
+data:
+  # Syslog pipeline example
+  syslog.conf: |
+    input {
+      tcp {
+        port => 5514
+        type => "syslog"
+        codec => plain
+      }
+      udp {
+        port => 5514
+        type => "syslog"
+        codec => plain
+      }
+    }
+    filter {
+      if [type] == "syslog" {
+        grok {
+          match => { "message" => "%{SYSLOGTIMESTAMP:syslog_timestamp} %{SYSLOGHOST:syslog_hostname} %{DATA:syslog_program}(?:\[%{POSINT:syslog_pid}\])?: %{GREEDYDATA:syslog_message}" }
+          add_tag => ["syslog_parsed"]
+        }
+        date {
+          match => [ "syslog_timestamp", "MMM  d HH:mm:ss", "MMM dd HH:mm:ss" ]
+          target => "@timestamp"
+        }
+        mutate {
+          add_field => {
+            "[event][module]" => "syslog"
+            "[event][dataset]" => "syslog.messages"
+          }
+        }
+      }
+    }
+    output {
+      if [type] == "syslog" {
+        elasticsearch {
+          hosts => ["https://logs-es-http.elastic-system.svc:9200"]
+          ssl_enabled => true
+          data_stream => true
+          data_stream_type => "logs"
+          data_stream_dataset => "syslog"
+          data_stream_namespace => "default"
+        }
+      }
+    }

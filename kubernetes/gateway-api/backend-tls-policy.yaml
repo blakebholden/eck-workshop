@@ -1,0 +1,60 @@
+# BackendTLSPolicy - Configure HTTPS to Elastic backends
+# Required because Kibana and Fleet Server use HTTPS by default in ECK
+# PORTABLE: Same structure on EKS and VKS (just update CA secret name if different)
+#
+# IMPORTANT: Before applying these policies, run the setup-ca-secrets.sh script
+# to create the CA secrets with the correct key name (ca.crt) that Envoy Gateway expects.
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: kibana-backend-tls
+  namespace: elastic-system
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: kibana-kb-http
+  validation:
+    caCertificateRefs:
+      # Reference the CA secret created by setup-ca-secrets.sh
+      - name: elastic-ca-cert
+        group: ""
+        kind: Secret
+    hostname: kibana-kb-http.elastic-system.svc
+
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: fleet-backend-tls
+  namespace: elastic-system
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: fleet-server-agent-http
+  validation:
+    caCertificateRefs:
+      - name: elastic-ca-cert
+        group: ""
+        kind: Secret
+    hostname: fleet-server-agent-http.elastic-system.svc
+
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: monitoring-kibana-backend-tls
+  namespace: elastic-system
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: kibana-monitoring-kb-http
+  validation:
+    caCertificateRefs:
+      - name: monitoring-kibana-ca-cert
+        group: ""
+        kind: Secret
+    hostname: kibana-monitoring-kb-http.elastic-system.svc
