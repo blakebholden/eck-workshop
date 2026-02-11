@@ -1,6 +1,6 @@
 #!/bin/bash
-# ECK Workshop Assistant Installer
-# Students run this to set up the workshop environment
+# ECK Workshop Installer - Combined AWS Credentials + Claude Code Setup
+# Students run this single script to configure everything
 
 set -e
 
@@ -27,20 +27,6 @@ spinner() {
         printf "\b\b\b\b\b\b"
     done
     printf "    \b\b\b\b"
-}
-
-# Progress bar function
-progress_bar() {
-    local duration=$1
-    local steps=20
-    local sleep_time=$(echo "$duration / $steps" | bc -l)
-
-    printf "["
-    for ((i=0; i<steps; i++)); do
-        sleep $sleep_time
-        printf "▓"
-    done
-    printf "] "
 }
 
 # Clear screen and show animated logo
@@ -133,36 +119,144 @@ echo ""
 sleep 1
 
 # ============================================
-# Step 1: Check/Install Claude Code
+# Step 1: Collect Student Info & AWS Credentials
 # ============================================
-echo -e "${CYAN}▸ Step 1/5:${NC} Checking for Claude Code..."
+echo -e "${CYAN}▸ Step 1/6:${NC} Workshop Configuration"
+echo ""
+
+# Get student name for unique resource naming
+echo -e "  ${WHITE}Enter your name (lowercase, no spaces, e.g., jsmith):${NC}"
+echo -n "  > "
+read STUDENT_NAME
+STUDENT_NAME=$(echo "$STUDENT_NAME" | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]-')
+
+if [ -z "$STUDENT_NAME" ]; then
+    echo -e "  ${RED}✗${NC} Student name is required"
+    exit 1
+fi
+
+echo -e "  ${GREEN}✓${NC} Student name: ${CYAN}$STUDENT_NAME${NC}"
+echo ""
+
+# Get AWS credentials
+echo -e "  ${WHITE}Enter your AWS credentials:${NC}"
+echo ""
+echo -n "  AWS Access Key ID: "
+read AWS_ACCESS_KEY_ID
+AWS_ACCESS_KEY_ID=$(echo "$AWS_ACCESS_KEY_ID" | tr -d '[:space:]')
+
+echo -n "  AWS Secret Access Key: "
+read -s AWS_SECRET_ACCESS_KEY
+AWS_SECRET_ACCESS_KEY=$(echo "$AWS_SECRET_ACCESS_KEY" | tr -d '[:space:]')
+echo ""
+
+echo -n "  AWS Region [us-east-2]: "
+read AWS_REGION_INPUT
+AWS_REGION=$(echo "${AWS_REGION_INPUT:-us-east-2}" | tr -d '[:space:]')
+
+# Validate inputs
+if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+    echo -e "  ${RED}✗${NC} AWS credentials are required"
+    exit 1
+fi
+
+echo ""
+sleep 0.3
+
+# ============================================
+# Step 2: Configure AWS Credentials
+# ============================================
+echo -e "${CYAN}▸ Step 2/6:${NC} Configuring AWS credentials..."
+sleep 0.5
+
+# Export environment variables for immediate use
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+export AWS_DEFAULT_REGION="$AWS_REGION"
+export AWS_REGION
+export STUDENT_NAME
+export TF_VAR_cluster_name="eck-${STUDENT_NAME}-dev"
+
+# Claude Code via Bedrock (uses same AWS credentials)
+export CLAUDE_CODE_USE_BEDROCK=1
+
+# Configure AWS CLI profile
+aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" --profile eck-workshop
+aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" --profile eck-workshop
+aws configure set region "$AWS_REGION" --profile eck-workshop
+
+# Persist environment variables
+cat > /root/.workshop-env << ENVEOF
+export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID"
+export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY"
+export AWS_DEFAULT_REGION="$AWS_REGION"
+export AWS_REGION="$AWS_REGION"
+export AWS_PROFILE=eck-workshop
+export STUDENT_NAME="$STUDENT_NAME"
+export TF_VAR_cluster_name="eck-${STUDENT_NAME}-dev"
+
+# Claude Code via Amazon Bedrock
+export CLAUDE_CODE_USE_BEDROCK=1
+ENVEOF
+
+# Add to bashrc
+grep -q "workshop-env" /root/.bashrc 2>/dev/null || echo "source /root/.workshop-env" >> /root/.bashrc
+
+echo -e "  ${GREEN}✓${NC} AWS credentials configured"
+echo -e "  ${GREEN}✓${NC} Cluster name: ${CYAN}eck-${STUDENT_NAME}-dev${NC}"
+
+sleep 0.3
+
+# ============================================
+# Step 3: Verify AWS Access
+# ============================================
+echo ""
+echo -e "${CYAN}▸ Step 3/6:${NC} Verifying AWS access..."
+sleep 0.5
+
+if AWS_PAGER="" aws sts get-caller-identity &>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} AWS credentials verified"
+else
+    echo -e "  ${RED}✗${NC} AWS credential verification failed"
+    echo ""
+    echo -e "  Please check your credentials and try again."
+    exit 1
+fi
+
+sleep 0.3
+
+# ============================================
+# Step 4: Check/Install Claude Code
+# ============================================
+echo ""
+echo -e "${CYAN}▸ Step 4/6:${NC} Checking for Claude Code..."
 sleep 0.5
 
 if ! command -v claude &> /dev/null; then
-    echo -e "  ${YELLOW}⚠${NC}  Claude Code not found"
+    echo -e "  ${YELLOW}⚠${NC}  Claude Code not found, installing..."
     echo ""
-    echo -e "  ${WHITE}Would you like to install it now?${NC}"
-    read -p "  [Y/n]: " INSTALL_CLAUDE
 
-    if [[ "$INSTALL_CLAUDE" =~ ^[Nn]$ ]]; then
-        echo ""
-        echo -e "  Install manually: ${CYAN}curl -fsSL https://claude.ai/install.sh | bash${NC}"
-        exit 1
+    # Check if npm/node is installed
+    if ! command -v node &> /dev/null; then
+        echo -e "  Installing Node.js..."
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null 2>&1
+        apt-get install -y nodejs >/dev/null 2>&1
     fi
 
-    echo ""
-    echo -e "  ${CYAN}Installing Claude Code...${NC}"
-    echo ""
-    curl -fsSL https://claude.ai/install.sh | bash
-
-    export PATH="$HOME/.claude/bin:$PATH"
+    # Install Claude Code
+    npm install -g @anthropic-ai/claude-code >/dev/null 2>&1
 
     if ! command -v claude &> /dev/null; then
-        echo -e "  ${RED}✗${NC} Installation issue - try opening a new terminal"
-        exit 1
+        echo -e "  ${RED}✗${NC} Installation issue - trying alternate method..."
+        curl -fsSL https://claude.ai/install.sh | bash
+        export PATH="$HOME/.claude/bin:$PATH"
     fi
-    echo ""
-    echo -e "  ${GREEN}✓${NC} Claude Code installed"
+
+    if command -v claude &> /dev/null; then
+        echo -e "  ${GREEN}✓${NC} Claude Code installed"
+    else
+        echo -e "  ${RED}✗${NC} Installation failed - you can install manually later"
+    fi
 else
     echo -e "  ${GREEN}✓${NC} Claude Code found"
 fi
@@ -170,44 +264,41 @@ fi
 sleep 0.3
 
 # ============================================
-# Step 2: AWS Bedrock Configuration
+# Step 5: Configure Claude Code for Bedrock
 # ============================================
 echo ""
-echo -e "${CYAN}▸ Step 2/5:${NC} Configuring Claude Code with AWS Bedrock..."
+echo -e "${CYAN}▸ Step 5/6:${NC} Configuring Claude Code with AWS Bedrock..."
 sleep 0.5
 
-# Check if AWS credentials are available
-if ! aws sts get-caller-identity &>/dev/null; then
-    echo ""
-    echo -e "  ${RED}✗${NC} AWS credentials not found"
-    echo ""
-    echo -e "  Please configure AWS credentials first:"
-    echo -e "  ${CYAN}source /root/.workshop-env${NC}"
-    echo ""
-    exit 1
-fi
+# Create Claude settings directory and configuration
+mkdir -p /root/.claude
 
-# Set Bedrock environment variables
-export CLAUDE_CODE_USE_BEDROCK=1
-export AWS_REGION="${AWS_REGION:-us-east-2}"
+cat > /root/.claude/settings.json << SETTINGS
+{
+  "theme": "dark",
+  "env": {
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_REGION": "$AWS_REGION"
+  }
+}
+SETTINGS
 
-echo -e "  ${GREEN}✓${NC} AWS credentials detected"
 echo -e "  ${GREEN}✓${NC} Bedrock mode enabled (using your AWS credentials)"
 
 sleep 0.3
 
 # ============================================
-# Step 3: Configure Plugin
+# Step 6: Initialize Workshop State
 # ============================================
 echo ""
-echo -e "${CYAN}▸ Step 3/5:${NC} Setting up workshop plugin..."
+echo -e "${CYAN}▸ Step 6/6:${NC} Initializing workshop..."
 sleep 0.5
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 
+# Set up project settings for Claude
 mkdir -p "$PROJECT_ROOT/.claude"
-
 cat > "$PROJECT_ROOT/.claude/settings.json" << 'EOF'
 {
   "plugins": ["./claude-aws-assistant/eck-workshop-plugin"],
@@ -217,7 +308,6 @@ cat > "$PROJECT_ROOT/.claude/settings.json" << 'EOF'
       "Bash(terraform *)",
       "Bash(kubectl *)",
       "Bash(helm *)",
-      "Bash(brew *)",
       "Read",
       "Write",
       "Glob",
@@ -228,43 +318,27 @@ cat > "$PROJECT_ROOT/.claude/settings.json" << 'EOF'
 }
 EOF
 
-echo -e "  ${GREEN}✓${NC} Plugin configured"
-
-sleep 0.3
-
-# ============================================
-# Step 4: Install Workshop Files
-# ============================================
-echo ""
-echo -e "${CYAN}▸ Step 4/5:${NC} Installing workshop files..."
-sleep 0.5
-
-if [ ! -f "$PROJECT_ROOT/CLAUDE.md" ]; then
+# Copy CLAUDE.md if it exists
+if [ -f "$SCRIPT_DIR/CLAUDE.md" ] && [ ! -f "$PROJECT_ROOT/CLAUDE.md" ]; then
     cp "$SCRIPT_DIR/CLAUDE.md" "$PROJECT_ROOT/CLAUDE.md"
-    echo -e "  ${GREEN}✓${NC} Workshop instructions installed"
-else
-    echo -e "  ${GREEN}✓${NC} Workshop instructions found"
 fi
 
-sleep 0.3
-
-# ============================================
-# Step 5: Initialize State
-# ============================================
-echo ""
-echo -e "${CYAN}▸ Step 5/5:${NC} Initializing workshop state..."
-sleep 0.5
-
+# Initialize workshop state
 cat > "$SCRIPT_DIR/.workshop-state.json" << EOF
 {
-  "currentPhase": 0,
+  "currentPhase": 1,
+  "studentConfig": {
+    "clusterName": "eck-${STUDENT_NAME}-dev",
+    "studentName": "$STUDENT_NAME",
+    "awsRegion": "$AWS_REGION"
+  },
   "completedSteps": [],
-  "startedAt": null,
+  "startedAt": "$(date -Iseconds)",
   "lastActivity": null
 }
 EOF
 
-echo -e "  ${GREEN}✓${NC} Ready to go"
+echo -e "  ${GREEN}✓${NC} Workshop initialized"
 
 sleep 0.5
 
@@ -290,7 +364,7 @@ cat << 'ART'
     │                                                         │
     │   Your AI instructor will guide you through:            │
     │                                                         │
-    │     Phase 1: Environment Setup                          │
+    │     Phase 1: Environment Setup       ✓ Complete         │
     │     Phase 2: Deploy Infrastructure                      │
     │     Phase 3: Deploy ECK Stack                           │
     │     Phase 4: Fleet & Monitoring                         │
@@ -304,9 +378,16 @@ cat << 'ART'
 ART
 echo -e "${NC}"
 
+echo -e "  ${WHITE}Configuration Summary:${NC}"
+echo -e "    Student Name:    ${CYAN}$STUDENT_NAME${NC}"
+echo -e "    Cluster Name:    ${CYAN}eck-${STUDENT_NAME}-dev${NC}"
+echo -e "    AWS Region:      ${CYAN}$AWS_REGION${NC}"
+echo -e "    Claude Code:     ${GREEN}Enabled (via Bedrock)${NC}"
+echo ""
+
 # Countdown with progress bar (10 seconds)
 echo ""
-echo -e "  ${WHITE}Launching in 10 seconds...${NC}"
+echo -e "  ${WHITE}Launching Claude Code in 10 seconds...${NC}"
 echo ""
 echo -ne "  ${CYAN}["
 for i in {1..20}; do
@@ -336,6 +417,7 @@ echo -e "  ${GREEN}🚀 Launching workshop...${NC}"
 echo ""
 sleep 1
 
-# Change to project directory and launch Claude with /workshop
+# Source environment and launch Claude
+source /root/.workshop-env
 cd "$PROJECT_ROOT"
 exec claude "/workshop"
