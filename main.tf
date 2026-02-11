@@ -2,7 +2,8 @@
 # Root module orchestrating all components
 
 locals {
-  cluster_name = "${var.cluster_name}-${var.environment}"
+  # Only append environment suffix if it's not empty
+  cluster_name = var.environment != "" ? "${var.cluster_name}-${var.environment}" : var.cluster_name
 
   # Generate unique CIDR based on cluster name hash
   # This ensures each student gets a unique VPC CIDR to avoid conflicts
