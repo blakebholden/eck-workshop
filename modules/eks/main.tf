@@ -213,7 +213,10 @@ resource "aws_eks_node_group" "apps" {
 }
 
 # ML node group - Machine Learning workloads (ELSER, NLP models)
+# Only created when enable_ml_nodes = true (Challenge 6)
 resource "aws_eks_node_group" "ml" {
+  count = var.enable_ml_nodes ? 1 : 0
+
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "ml"
   node_role_arn   = aws_iam_role.eks_nodes.arn

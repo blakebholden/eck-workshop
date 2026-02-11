@@ -39,6 +39,7 @@ module "eks" {
   vpc_id             = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   environment        = var.environment
+  enable_ml_nodes    = var.enable_ml_nodes
 
   depends_on = [module.vpc]
 }

@@ -86,6 +86,12 @@ variable "enable_gateway_api" {
   default     = true
 }
 
+variable "enable_ml_nodes" {
+  description = "Deploy ML node group for ELSER and ML workloads (Challenge 6)"
+  type        = bool
+  default     = false
+}
+
 # Gateway API / Private DNS Configuration
 variable "internal_domain" {
   description = "Internal domain for private DNS (e.g., elastic.internal)"

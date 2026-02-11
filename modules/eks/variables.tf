@@ -23,3 +23,9 @@ variable "environment" {
   description = "Environment name"
   type        = string
 }
+
+variable "enable_ml_nodes" {
+  description = "Deploy ML node group for ELSER and ML workloads"
+  type        = bool
+  default     = false
+}
