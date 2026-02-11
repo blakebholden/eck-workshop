@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ECK on EKS - Architecture Diagram</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background: #0B1120; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const C = {
+      bg: "#0B1120",
+      card: "#151D2E",
+      vpc: "#3B82F6",
+      public: "#10B981",
+      private: "#6366F1",
+      eks: "#FA7343",
+      eksMgd: "#E879F9",
+      elastic: "#FEC514",
+      kibana: "#F04E98",
+      fleet: "#00BFB3",
+      agent: "#79AAD9",
+      monitor: "#93C47D",
+      gateway: "#FF6F61",
+      route53: "#8C4FFF",
+      app: "#FF9900",
+      logstash: "#3CBEB1",
+      apm: "#EF5350",
+      text: "#E2E8F0",
+      muted: "#64748B",
+      dim: "#475569",
+      border: "#1E293B",
+      nodeSys: "#60A5FA",
+      nodeEs: "#FBBF24",
+      nodeApp: "#34D399",
+      az1: "#38BDF8",
+      az2: "#C084FC",
+    };
+
+    const Badge = ({ color, children, outline }) => (
+      <span style={{
+        display: "inline-flex", alignItems: "center", padding: "1px 6px", borderRadius: "3px",
+        fontSize: "9px", fontWeight: 700, letterSpacing: "0.3px", textTransform: "uppercase",
+        background: outline ? "transparent" : color + "1A",
+        color, border: `1px solid ${color}${outline ? "66" : "33"}`, lineHeight: "16px", whiteSpace: "nowrap",
+      }}>{children}</span>
+    );
+
+    const SectionTag = ({ color, icon, label, right, bg }) => (
+      <div style={{
+        position: "absolute", top: "-10px", [right ? "right" : "left"]: "14px",
+        background: bg || C.bg, padding: "0 8px", display: "flex", alignItems: "center", gap: "5px", zIndex: 2,
+      }}>
+        {icon && <span style={{ fontSize: "11px" }}>{icon}</span>}
+        <span style={{ fontSize: "10px", fontWeight: 800, color, letterSpacing: "0.6px", textTransform: "uppercase" }}>{label}</span>
+      </div>
+    );
+
+    const Chip = ({ label, icon, color, sub }) => (
+      <div style={{
+        background: C.card, border: `1px solid ${color}44`, borderRadius: "5px",
+        padding: "4px 7px", display: "flex", alignItems: "center", gap: "4px",
+        borderLeft: `2.5px solid ${color}`,
+      }}>
+        <span style={{ fontSize: "11px" }}>{icon}</span>
+        <div>
+          <div style={{ fontSize: "9px", fontWeight: 700, color: C.text, lineHeight: 1.2 }}>{label}</div>
+          {sub && <div style={{ fontSize: "8px", color: C.muted, lineHeight: 1.2 }}>{sub}</div>}
+        </div>
+      </div>
+    );
+
+    const FlowArrow = ({ color = C.dim, label, wide }) => (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "3px 0" }}>
+        <div style={{ width: wide ? "3px" : "2px", height: "16px", background: color }} />
+        <div style={{ width: 0, height: 0, borderLeft: `${wide ? 6 : 4}px solid transparent`, borderRight: `${wide ? 6 : 4}px solid transparent`, borderTop: `${wide ? 7 : 5}px solid ${color}` }} />
+        {label && <span style={{ fontSize: "8px", color, marginTop: "1px", fontWeight: 600 }}>{label}</span>}
+      </div>
+    );
+
+    const MiniNode = ({ id, color }) => (
+      <div style={{
+        width: "34px", height: "34px", borderRadius: "5px",
+        background: `linear-gradient(135deg, ${color}22, ${color}0A)`,
+        border: `1px solid ${color}55`, display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: "7px", fontWeight: 800, color, letterSpacing: "0.2px",
+      }}>{id}</div>
+    );
+
+    const AZStripe = ({ color, label, cidr, children, style = {} }) => (
+      <div style={{
+        flex: 1, minWidth: 0, position: "relative",
+        borderRadius: "6px", padding: "6px",
+        background: `${color}06`,
+        border: `1px solid ${color}18`,
+        ...style,
+      }}>
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+          borderLeft: `3px solid ${color}33`, borderRadius: "6px",
+          pointerEvents: "none",
+        }} />
+        <div style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "6px" }}>
+          <div style={{
+            width: "6px", height: "6px", borderRadius: "50%", background: color,
+            boxShadow: `0 0 6px ${color}66`,
+          }} />
+          <span style={{ fontSize: "9px", fontWeight: 800, color, letterSpacing: "0.4px" }}>{label}</span>
+          {cidr && <span style={{ fontSize: "8px", color: C.muted }}>· {cidr}</span>}
+        </div>
+        {children}
+      </div>
+    );
+
+    function ArchDiagram() {
+      return (
+        <div style={{
+          background: C.bg, minHeight: "100vh", padding: "20px",
+          fontFamily: "'JetBrains Mono', 'SF Mono', 'Fira Code', monospace",
+          maxWidth: "920px", margin: "0 auto",
+        }}>
+          {/* Header */}
+          <div style={{ textAlign: "center", marginBottom: "20px" }}>
+            <h1 style={{ margin: 0, fontSize: "20px", fontWeight: 800, color: C.text, letterSpacing: "-0.3px" }}>
+              ECK on EKS — AWS Resource Topology
+            </h1>
+            <div style={{ display: "flex", justifyContent: "center", gap: "10px", marginTop: "8px", flexWrap: "wrap" }}>
+              <Badge color={C.vpc}>us-east-2</Badge>
+              <Badge color={C.elastic}>Elastic 9.0+</Badge>
+              <Badge color={C.eks}>EKS 1.29</Badge>
+              <Badge color={C.eksMgd}>ECK Workshop</Badge>
+            </div>
+          </div>
+
+          {/* Users at top */}
+          <div style={{
+            display: "flex", justifyContent: "center", alignItems: "center", gap: "16px",
+            marginBottom: "4px", padding: "10px",
+            border: `1px dashed ${C.muted}44`, borderRadius: "8px",
+          }}>
+            <span style={{ fontSize: "22px" }}>👤</span>
+            <div>
+              <div style={{ fontSize: "11px", fontWeight: 800, color: C.text }}>Users / Operators</div>
+              <div style={{ fontSize: "9px", color: C.muted }}>VPC-internal clients · Jump Box RDP · kubectl</div>
+            </div>
+          </div>
+
+          <FlowArrow color={C.route53} label="DNS lookup" wide />
+
+          {/* Route53 */}
+          <div style={{
+            border: `1px solid ${C.route53}44`, borderRadius: "8px", padding: "10px",
+            background: C.card, display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
+          }}>
+            <Chip label="Route53 Private Hosted Zone" icon="🔗" color={C.route53} sub="elastic.internal" />
+            <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+              <Badge color={C.route53}>kibana.elastic.internal</Badge>
+              <Badge color={C.route53}>fleet.elastic.internal</Badge>
+              <Badge color={C.route53}>apm.elastic.internal</Badge>
+              <Badge color={C.route53}>*.elastic.internal</Badge>
+            </div>
+          </div>
+
+          <FlowArrow color={C.route53} label="A record alias" wide />
+
+          {/* VPC */}
+          <div style={{
+            border: `2px solid ${C.vpc}33`, borderRadius: "14px", padding: "14px",
+            position: "relative", background: `linear-gradient(180deg, ${C.vpc}06 0%, transparent 200px)`,
+          }}>
+            <SectionTag color={C.vpc} icon="🔒" label="VPC · 10.0.0.0/16 · us-east-2" />
+
+            {/* AZ Headers */}
+            <div style={{ display: "flex", gap: "8px", marginTop: "4px", marginBottom: "10px" }}>
+              <div style={{
+                flex: 1, textAlign: "center", padding: "6px",
+                background: `${C.az1}0A`, borderRadius: "6px", border: `1.5px solid ${C.az1}33`,
+              }}>
+                <div style={{ fontSize: "12px", fontWeight: 800, color: C.az1, letterSpacing: "0.5px" }}>AVAILABILITY ZONE A</div>
+                <div style={{ fontSize: "10px", color: C.muted }}>us-east-2a</div>
+              </div>
+              <div style={{
+                flex: 1, textAlign: "center", padding: "6px",
+                background: `${C.az2}0A`, borderRadius: "6px", border: `1.5px solid ${C.az2}33`,
+              }}>
+                <div style={{ fontSize: "12px", fontWeight: 800, color: C.az2, letterSpacing: "0.5px" }}>AVAILABILITY ZONE B</div>
+                <div style={{ fontSize: "10px", color: C.muted }}>us-east-2b</div>
+              </div>
+            </div>
+
+            {/* Public Subnets */}
+            <div style={{
+              position: "relative", border: `1px solid ${C.public}33`, borderRadius: "8px",
+              padding: "10px", marginBottom: "6px",
+            }}>
+              <SectionTag color={C.public} icon="🌐" label="Public Subnets" bg={C.bg} />
+              <div style={{ display: "flex", gap: "8px", marginTop: "2px" }}>
+                <AZStripe color={C.az1} label="AZ-A" cidr="10.0.1.0/24">
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <Chip label="NAT Gateway" icon="🔀" color={C.public} sub="Elastic IP → Internet" />
+                    <Chip label="Windows Jump Box" icon="🖥️" color="#F59E0B" sub="t3.medium · RDP" />
+                  </div>
+                </AZStripe>
+                <AZStripe color={C.az2} label="AZ-B" cidr="10.0.2.0/24">
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <Chip label="NAT Gateway" icon="🔀" color={C.public} sub="Elastic IP → Internet" />
+                  </div>
+                </AZStripe>
+              </div>
+            </div>
+
+            <FlowArrow color={C.public} label="NAT → private" />
+
+            {/* NLB */}
+            <div style={{
+              border: `1.5px solid ${C.gateway}44`, borderRadius: "8px", padding: "8px 10px",
+              background: `${C.gateway}08`, display: "flex", alignItems: "center", gap: "10px",
+              flexWrap: "wrap", marginBottom: "6px",
+            }}>
+              <Chip label="Internal NLB" icon="⚖️" color={C.gateway} sub="Network Load Balancer" />
+              <div style={{ display: "flex", gap: "4px" }}>
+                <Badge color={C.az1}>ENI in AZ-A</Badge>
+                <Badge color={C.az2}>ENI in AZ-B</Badge>
+              </div>
+              <div style={{ flex: 1 }} />
+              <Badge color={C.gateway} outline>cross-zone enabled</Badge>
+            </div>
+
+            <FlowArrow color={C.gateway} label="TCP 443 → Envoy" />
+
+            {/* EKS Cluster */}
+            <div style={{
+              border: `2px solid ${C.eks}44`, borderRadius: "10px", padding: "12px",
+              position: "relative", background: `linear-gradient(180deg, ${C.eks}06 0%, transparent 200px)`,
+            }}>
+              <SectionTag color={C.eks} icon="⎈" label="EKS Cluster — Private Subnets (Data Plane)" />
+              <SectionTag color={C.dim} label="No public IPs" right />
+
+              {/* Private subnet headers */}
+              <div style={{ display: "flex", gap: "8px", marginTop: "4px", marginBottom: "10px" }}>
+                <div style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "5px 10px", borderRadius: "5px",
+                  background: `${C.az1}08`, border: `1px solid ${C.az1}22`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: C.az1 }} />
+                    <span style={{ fontSize: "9px", fontWeight: 700, color: C.az1 }}>AZ-A · 10.0.11.0/24</span>
+                  </div>
+                  <Badge color={C.private} outline>Private</Badge>
+                </div>
+                <div style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "5px 10px", borderRadius: "5px",
+                  background: `${C.az2}08`, border: `1px solid ${C.az2}22`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <div style={{ width: "5px", height: "5px", borderRadius: "50%", background: C.az2 }} />
+                    <span style={{ fontSize: "9px", fontWeight: 700, color: C.az2 }}>AZ-B · 10.0.12.0/24</span>
+                  </div>
+                  <Badge color={C.private} outline>Private</Badge>
+                </div>
+              </div>
+
+              {/* Envoy Gateway */}
+              <div style={{
+                border: `1px solid ${C.gateway}33`, borderRadius: "7px", padding: "8px",
+                background: `${C.gateway}06`, marginBottom: "6px",
+              }}>
+                <div style={{ fontSize: "9px", fontWeight: 800, color: C.gateway, marginBottom: "6px", letterSpacing: "0.4px" }}>
+                  🚪 INGRESS TIER — Envoy Gateway
+                </div>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                  <Chip label="Envoy Gateway Controller" icon="🚪" color={C.gateway} sub="GatewayClass + Gateway" />
+                  <span style={{ color: C.dim }}>→</span>
+                  <Badge color={C.kibana}>HTTPRoute → kibana:5601</Badge>
+                  <Badge color={C.fleet}>HTTPRoute → fleet:8220</Badge>
+                  <Badge color={C.apm}>HTTPRoute → apm:8200</Badge>
+                  <Badge color={C.monitor}>HTTPRoute → mon-kibana:5602</Badge>
+                </div>
+              </div>
+
+              <FlowArrow color={C.text} label="routes to K8s services" />
+
+              {/* Node Groups */}
+              <div style={{ fontSize: "10px", fontWeight: 800, color: C.text, marginBottom: "8px", letterSpacing: "0.5px" }}>
+                🖥 EKS MANAGED NODE GROUPS
+              </div>
+
+              {/* System node group */}
+              <div style={{
+                border: `1.5px solid ${C.nodeSys}33`, borderRadius: "8px", padding: "10px",
+                marginBottom: "8px", background: `${C.nodeSys}06`, position: "relative",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ width: "10px", height: "10px", borderRadius: "3px", background: C.nodeSys }} />
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: C.nodeSys }}>system</span>
+                    <span style={{ fontSize: "9px", color: C.muted }}>m5.large × 2</span>
+                  </div>
+                  <Badge color={C.nodeSys} outline>no taints</Badge>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <AZStripe color={C.az1} label="AZ-A">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <MiniNode id="sys-1" color={C.nodeSys} />
+                      <span style={{ fontSize: "8px", color: C.muted }}>worker node</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <Chip label="ECK Operator" icon="🎯" color={C.elastic} sub="manages CRDs" />
+                      <Chip label="Kibana" icon="📈" color={C.kibana} sub=":5601" />
+                    </div>
+                  </AZStripe>
+                  <AZStripe color={C.az2} label="AZ-B">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <MiniNode id="sys-2" color={C.nodeSys} />
+                      <span style={{ fontSize: "8px", color: C.muted }}>worker node</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <Chip label="Fleet Server" icon="🛰️" color={C.fleet} sub=":8220" />
+                      <Chip label="ES (monitoring)" icon="📊" color={C.monitor} sub="20Gi" />
+                      <Chip label="Envoy Gateway" icon="🚪" color={C.gateway} sub="proxy" />
+                    </div>
+                  </AZStripe>
+                </div>
+              </div>
+
+              {/* Elastic node group */}
+              <div style={{
+                border: `1.5px solid ${C.nodeEs}33`, borderRadius: "8px", padding: "10px",
+                marginBottom: "8px", background: `${C.nodeEs}06`, position: "relative",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ width: "10px", height: "10px", borderRadius: "3px", background: C.nodeEs }} />
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: C.nodeEs }}>elastic</span>
+                    <span style={{ fontSize: "9px", color: C.muted }}>m5.xlarge × 1-3</span>
+                  </div>
+                  <Badge color={C.nodeEs} outline>taint: dedicated=elasticsearch</Badge>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <AZStripe color={C.az1} label="AZ-A">
+                    <div style={{ display: "flex", gap: "4px", marginBottom: "6px" }}>
+                      <MiniNode id="es-1" color={C.nodeEs} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <Chip label="ES logs-es-default-0" icon="🔍" color={C.elastic} sub="master, data · 50Gi" />
+                      <Chip label="APM Server" icon="🔬" color={C.apm} sub=":8200 · OTel" />
+                    </div>
+                  </AZStripe>
+                  <AZStripe color={C.az2} label="AZ-B">
+                    <div style={{ display: "flex", gap: "4px", marginBottom: "6px" }}>
+                      <MiniNode id="ml-1" color={C.nodeEs} />
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                      <Chip label="ES logs-es-ml-0" icon="🧠" color={C.elastic} sub="ml role · ELSER" />
+                    </div>
+                  </AZStripe>
+                </div>
+              </div>
+
+              {/* Apps node group */}
+              <div style={{
+                border: `1.5px solid ${C.nodeApp}33`, borderRadius: "8px", padding: "10px",
+                marginBottom: "8px", background: `${C.nodeApp}06`, position: "relative",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <div style={{ width: "10px", height: "10px", borderRadius: "3px", background: C.nodeApp }} />
+                    <span style={{ fontSize: "11px", fontWeight: 800, color: C.nodeApp }}>apps</span>
+                    <span style={{ fontSize: "9px", color: C.muted }}>m5.large × 2</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    <Badge color={C.nodeApp} outline>no taints</Badge>
+                    <Badge color={C.app} outline>ns: app-demo, otel-demo</Badge>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <AZStripe color={C.az1} label="AZ-A">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <MiniNode id="app-1" color={C.nodeApp} />
+                    </div>
+                    <Chip label="Sample Apps" icon="📝" color={C.app} sub="demo-stdout, demo-api" />
+                  </AZStripe>
+                  <AZStripe color={C.az2} label="AZ-B">
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
+                      <MiniNode id="app-2" color={C.nodeApp} />
+                    </div>
+                    <Chip label="OTel Demo" icon="🛒" color={C.app} sub="microservices" />
+                  </AZStripe>
+                </div>
+              </div>
+
+              {/* DaemonSet */}
+              <div style={{
+                border: `1px solid ${C.agent}44`, borderRadius: "7px",
+                padding: "8px 10px", background: `${C.agent}08`, marginBottom: "8px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <Chip label="Elastic Agent DaemonSet" icon="📡" color={C.agent} sub="infrastructure monitoring" />
+                  <div style={{ flex: 1, height: "1px", background: `repeating-linear-gradient(90deg, ${C.agent}44 0 6px, transparent 6px 10px)` }} />
+                  <span style={{ fontSize: "9px", color: C.agent, fontWeight: 700 }}>ALL NODES</span>
+                </div>
+              </div>
+
+              {/* EBS */}
+              <div style={{
+                border: `1px solid ${C.dim}44`, borderRadius: "7px",
+                padding: "6px 10px", background: `${C.dim}0A`,
+                display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
+              }}>
+                <span style={{ fontSize: "9px", fontWeight: 800, color: C.muted }}>💾 EBS gp3</span>
+                <Badge color={C.elastic}>logs-es: 50Gi</Badge>
+                <Badge color={C.monitor}>monitoring-es: 20Gi</Badge>
+              </div>
+            </div>
+
+            {/* Control Plane */}
+            <div style={{ display: "flex", justifyContent: "center", marginTop: "6px" }}>
+              <FlowArrow color={C.eksMgd} label="ENI cross-account" />
+            </div>
+
+            <div style={{
+              border: `1.5px dashed ${C.eksMgd}44`, borderRadius: "8px", padding: "10px",
+              background: `${C.eksMgd}06`, position: "relative",
+            }}>
+              <SectionTag color={C.eksMgd} icon="☁️" label="AWS-Managed EKS Control Plane" bg="#0d1326" />
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "2px" }}>
+                <Chip label="K8s API Server" icon="🔌" color={C.eksMgd} sub="managed endpoint" />
+                <Chip label="etcd" icon="💾" color={C.eksMgd} sub="encrypted" />
+                <Chip label="Controller Manager" icon="🔄" color={C.eksMgd} />
+                <Chip label="IAM/OIDC" icon="🔑" color={C.eksMgd} sub="IRSA" />
+              </div>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div style={{
+            marginTop: "14px", border: `1px solid ${C.border}`, borderRadius: "10px",
+            padding: "12px", background: C.card,
+          }}>
+            <div style={{ fontSize: "10px", fontWeight: 800, color: C.text, marginBottom: "8px", letterSpacing: "0.5px" }}>
+              🏗 WORKSHOP PHASES
+            </div>
+            <div style={{ display: "flex", gap: "4px", alignItems: "center", flexWrap: "wrap" }}>
+              {[
+                { n: "1", l: "Environment", c: C.vpc },
+                { n: "2", l: "Infrastructure", c: C.eks },
+                { n: "3", l: "ECK Stack", c: C.elastic },
+                { n: "4", l: "Fleet", c: C.fleet },
+                { n: "5", l: "APM", c: C.apm },
+                { n: "6", l: "ML/ELSER", c: C.nodeEs },
+                { n: "7", l: "AI Assistant", c: C.kibana },
+                { n: "8", l: "Explore", c: C.nodeApp },
+              ].map((p, i, arr) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "3px" }}>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "3px",
+                    background: `${p.c}15`, border: `1px solid ${p.c}33`, borderRadius: "4px",
+                    padding: "2px 5px",
+                  }}>
+                    <span style={{ fontSize: "8px", fontWeight: 800, color: p.c }}>{p.n}</span>
+                    <span style={{ fontSize: "8px", fontWeight: 600, color: C.text }}>{p.l}</span>
+                  </div>
+                  {i < arr.length - 1 && <span style={{ color: C.dim, fontSize: "9px" }}>→</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<ArchDiagram />);
+  </script>
+</body>
+</html>

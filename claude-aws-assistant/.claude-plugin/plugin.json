@@ -1,0 +1,40 @@
+{
+  "name": "eck-workshop-assistant",
+  "version": "2.0.0",
+  "description": "Guided workshop assistant for deploying ECK on AWS EKS (8-phase workshop)",
+  "author": "Elastic",
+  "commands": [
+    {
+      "name": "workshop",
+      "description": "Start or resume the ECK workshop",
+      "file": "../commands/workshop.md"
+    },
+    {
+      "name": "status",
+      "description": "Check current workshop progress",
+      "file": "../commands/status.md"
+    },
+    {
+      "name": "verify",
+      "description": "Verify the current phase is complete",
+      "file": "../commands/verify.md"
+    },
+    {
+      "name": "troubleshoot",
+      "description": "Diagnose and fix common issues",
+      "file": "../commands/troubleshoot.md"
+    },
+    {
+      "name": "cleanup",
+      "description": "Safely tear down workshop resources",
+      "file": "../commands/cleanup.md"
+    }
+  ],
+  "hooks": {
+    "preToolExecution": "../hooks/safety-check.sh"
+  },
+  "settings": {
+    "stateFile": ".workshop-state.json",
+    "bedrockEnabled": true
+  }
+}

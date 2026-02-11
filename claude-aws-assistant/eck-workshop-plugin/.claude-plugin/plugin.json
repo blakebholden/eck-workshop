@@ -1,0 +1,9 @@
+{
+  "name": "eck-workshop",
+  "version": "1.0.0",
+  "description": "Guided workshop assistant for deploying ECK on AWS EKS. Provides educational, instructor-led experience with safety guardrails.",
+  "author": {
+    "name": "ECK Workshop Team"
+  },
+  "repository": "https://github.com/your-org/eck-workshop"
+}
