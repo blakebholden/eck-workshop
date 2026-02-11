@@ -4,6 +4,13 @@
 locals {
   cluster_name = "${var.cluster_name}-${var.environment}"
 
+  # Generate unique CIDR based on cluster name hash
+  # This ensures each student gets a unique VPC CIDR to avoid conflicts
+  # Uses second octet: 10.X.0.0/16 where X is derived from name hash (1-254)
+  name_hash       = md5(var.cluster_name)
+  second_octet    = (parseint(substr(local.name_hash, 0, 4), 16) % 253) + 1  # 1-254, avoiding 0 and 255
+  unique_vpc_cidr = var.vpc_cidr != "10.0.0.0/16" ? var.vpc_cidr : "10.${local.second_octet}.0.0/16"
+
   common_tags = {
     Environment = var.environment
     Project     = "eck-reference"
@@ -19,7 +26,7 @@ module "vpc" {
   source = "./modules/vpc"
 
   cluster_name       = local.cluster_name
-  vpc_cidr           = var.vpc_cidr
+  vpc_cidr           = local.unique_vpc_cidr
   availability_zones = var.availability_zones
   environment        = var.environment
 }

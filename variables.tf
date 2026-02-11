@@ -147,9 +147,9 @@ variable "logstash_replicas" {
 
 # VPC Configuration
 variable "vpc_cidr" {
-  description = "CIDR block for VPC - should be unique per student in shared accounts"
+  description = "CIDR block for VPC. If left as default (10.0.0.0/16), a unique CIDR will be auto-generated based on cluster_name hash (10.X.0.0/16)"
   type        = string
-  default     = "10.0.0.0/16"  # Override via TF_VAR_vpc_cidr for unique per-student CIDR
+  default     = "10.0.0.0/16"  # Leave as default to auto-generate unique CIDR per student
 }
 
 variable "availability_zones" {

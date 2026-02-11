@@ -7,6 +7,11 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
+output "vpc_cidr" {
+  description = "VPC CIDR block (unique per student based on cluster name)"
+  value       = local.unique_vpc_cidr
+}
+
 output "private_subnet_ids" {
   description = "Private subnet IDs"
   value       = module.vpc.private_subnet_ids
