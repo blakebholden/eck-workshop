@@ -136,7 +136,7 @@ module "fleet_config" {
   elasticsearch_name    = "logs"
   kibana_name           = "kibana"
   import_dashboards     = true
-  dashboard_ndjson_path = "${path.root}/../kubernetes/kibana-dashboards/app-demo-dashboard.ndjson"
+  dashboard_ndjson_path = "${path.root}/kubernetes/kibana-dashboards/app-demo-dashboard.ndjson"
 
   # Fleet policies MUST be created before Fleet Server starts
   depends_on = [module.kibana]
